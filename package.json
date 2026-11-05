@@ -1,0 +1,1 @@
+{"dependencies":{"express":"^4.19.2","pg":"^8.12.0"},"description":"Community brainstorming board for Parchment School District residents to discuss ideas for the next school bond. Not an official district site.","engines":{"node":">=20"},"main":"server.js","name":"parchment-next-bond-community","scripts":{"start":"node server.js"},"version":"1.0.0"}

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parchment Next Bond: Community Ideas</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <h1>Parchment Next Bond: Community Ideas</h1>
+  <p class="sub">A place for Parchment School District residents to brainstorm, in an organized way, what a next school bond could look like.</p>
+  <p class="notice"><strong>Not an official Parchment School District site.</strong> Ideas here are resident suggestions, not district decisions. All viewpoints are welcome.</p>
+</header>
+<main>
+  <section class="card" id="guidelines">
+    <h2>How this works</h2>
+    <p>Pick a topic, start a thread, or add a comment to an existing thread. Each thread shows a neutral summary: main points, where commenters seem to agree, where they differ, and open questions. The summary does not take a side.</p>
+    <ul>
+      <li>Focus on ideas, not people.</li>
+      <li>No personal attacks and no personal information about anyone.</li>
+      <li>Use the report button if a post breaks these guidelines.</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>Browse threads</h2>
+    <label>Topic
+      <select id="categoryFilter"><option value="">All topics</option></select>
+    </label>
+    <label>Search
+      <input id="searchBox" type="search" placeholder="Search threads">
+    </label>
+    <button id="refreshBtn">Refresh</button>
+    <div id="threadList" aria-live="polite"></div>
+  </section>
+
+  <section class="card">
+    <h2>Start a new thread</h2>
+    <form id="newThreadForm">
+      <label>Title <input id="newTitle" required maxlength="200"></label>
+      <label>Topic
+        <select id="newCategory"></select>
+      </label>
+      <label>Description <textarea id="newBody" required maxlength="4000" rows="5"></textarea></label>
+      <label>Display name (optional) <input id="newName" maxlength="60" placeholder="A resident"></label>
+      <button type="submit">Post thread</button>
+      <p id="newThreadMsg" role="status"></p>
+    </form>
+  </section>
+
+  <section class="card" id="threadDetail" hidden>
+    <button id="backBtn">Back to all threads</button>
+    <h2 id="detailTitle"></h2>
+    <p id="detailMeta"></p>
+    <p id="detailBody"></p>
+    <div id="detailActions"></div>
+    <h3>Neutral summary</h3>
+    <div id="summaryBox"><p>Loading summary...</p></div>
+    <h3>Comments</h3>
+    <div id="commentList"></div>
+    <form id="newCommentForm">
+      <label>Add a comment <textarea id="commentBody" required maxlength="4000" rows="4"></textarea></label>
+      <label>Display name (optional) <input id="commentName" maxlength="60" placeholder="A resident"></label>
+      <button type="submit">Post comment</button>
+      <p id="commentMsg" role="status"></p>
+    </form>
+  </section>
+</main>
+<footer>
+  <p>Community brainstorming only. This site is not run by Parchment School District and does not speak for the district.</p>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

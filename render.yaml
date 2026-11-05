@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: parchment-next-bond-community
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: parchment-next-bond-db
+          property: connectionString
+      # Optional: set OPENAI_API_KEY in the Render dashboard to use an AI
+      # summary. Without it, the site uses an automatic summary built
+      # only from the thread itself. Never commit a key to this repo.
+databases:
+  - name: parchment-next-bond-db
+    plan: free
