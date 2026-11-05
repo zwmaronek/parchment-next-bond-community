@@ -33,6 +33,38 @@
     </ul>
   </section>
 
+  <section class="card" id="workshop">
+    <h2>Build a Bond Workshop</h2>
+    <p>Not just open chat. Work through the last three bonds, pick or build the sections that should be in the next one, vote on them, and turn the top ones into a draft the community can see and vote on.</p>
+    <h3>Step 1: What happened last time</h3>
+    <p class="small">Three bonds, three no votes. The 2026 plan was the biggest ask, and the largest share went to North Elementary, then the high school wing.</p>
+    <div id="pastBonds"></div>
+    <p class="small">2026 tax figures, from the ballot: 3.95 mills in 2027 ($395 a year on $100,000 of taxable value), 5.51-mill simple average over 30 years. Existing debt at the time: $15.28 million in bonds and about $10.19 million in loans. Bond money cannot pay salaries or operating costs.</p>
+    <h3>Step 2: Pick your sections and vote</h3>
+    <p>Vote for the sections you would include. Each section keeps its own points: ideas, pros, cons, and open questions, so the reasoning stays with the section instead of getting lost in a long thread.</p>
+    <div id="sectionList" aria-live="polite"></div>
+    <h3>Step 3: Build your own section</h3>
+    <form id="newSectionForm">
+      <label>Section title <input id="sectionTitle" required maxlength="200" placeholder="Example: Repair the middle school roof first"></label>
+      <label>Building <input id="sectionBuilding" maxlength="120" placeholder="Parchment Middle School"></label>
+      <label>What would it include? <textarea id="sectionDetail" required maxlength="4000" rows="4"></textarea></label>
+      <label>Open question <input id="sectionQuestion" maxlength="500" placeholder="What still needs to be answered about this?"></label>
+      <label>Your cost estimate in dollars (optional) <input id="sectionCost" type="number" min="0" max="200000000" placeholder="12788595"></label>
+      <label>Display name (optional) <input id="sectionName" maxlength="60" placeholder="A resident"></label>
+      <button type="submit">Add section</button>
+      <p id="sectionMsg" role="status"></p>
+    </form>
+    <h3>Step 4: Your draft bond</h3>
+    <div id="myBond"><p>No sections picked yet. Use Add to my bond on a section below.</p></div>
+    <form id="draftForm">
+      <label>Draft title (optional) <input id="draftTitle" maxlength="200" placeholder="My bond draft"></label>
+      <label>Your note (optional) <textarea id="draftNote" maxlength="1000" rows="3" placeholder="Why these sections, in what order, and what would you leave out?"></textarea></label>
+      <label>Display name (optional) <input id="draftName" maxlength="60" placeholder="A resident"></label>
+      <button type="submit">Submit my draft as a proposal thread</button>
+      <p id="draftMsg" role="status"></p>
+    </form>
+  </section>
+
   <section class="card" id="browse">
     <h2>Browse threads</h2>
     <label>Topic

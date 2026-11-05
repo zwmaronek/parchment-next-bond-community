@@ -115,4 +115,138 @@ document.getElementById('newCommentForm').addEventListener('submit', async (e) =
   e.target.reset();
   openThread(currentThread.id);
 });
+let sectionsCache = [];
+function myBondIds() {
+  try { return JSON.parse(localStorage.getItem('myBondIds') || '[]'); } catch (e) { return []; }
+}
+function saveBondIds(ids) { localStorage.setItem('myBondIds', JSON.stringify(ids)); }
+function money(n) { return '$' + Number(n).toLocaleString('en-US'); }
+async function loadPastBonds() {
+  const box = document.getElementById('pastBonds');
+  if (!box) return;
+  const bonds = await (await fetch('/api/past-bonds')).json();
+  box.innerHTML = '';
+  bonds.forEach(b => {
+    const d = el('div', undefined, 'thread');
+    d.appendChild(el('h3', `${b.date}: ${b.amount} bond`));
+    d.appendChild(el('p', `${b.result}. ${b.votes}.`, 'meta'));
+    box.appendChild(d);
+  });
+}
+async function loadSections() {
+  const list = document.getElementById('sectionList');
+  if (!list) return;
+  sectionsCache = await (await fetch('/api/sections')).json();
+  list.innerHTML = '';
+  sectionsCache.forEach(s => {
+    const d = el('div', undefined, 'thread');
+    d.appendChild(el('h3', s.title));
+    d.appendChild(el('p', `${s.building} | ${s.source} | ${s.cost_label} | ${s.upvotes} votes | ${s.comment_count} points`, 'meta'));
+    d.appendChild(el('p', s.detail));
+    d.appendChild(el('p', 'Open question: ' + s.open_question, 'small'));
+    const vote = el('button', `Vote for this section (${s.upvotes})`);
+    vote.addEventListener('click', async (ev) => { ev.stopPropagation(); await fetch(`/api/sections/${s.id}/upvote`, { method: 'POST' }); loadSections(); });
+    const add = el('button', myBondIds().includes(s.id) ? 'In my bond' : 'Add to my bond');
+    add.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const ids = myBondIds();
+      if (ids.includes(s.id)) { saveBondIds(ids.filter(x => x !== s.id)); }
+      else { ids.push(s.id); saveBondIds(ids); }
+      renderMyBond(); loadSections();
+    });
+    const discuss = el('button', 'Discuss this section');
+    discuss.addEventListener('click', (ev) => { ev.stopPropagation(); openSection(s.id); });
+    d.append(vote, add, discuss);
+    list.appendChild(d);
+  });
+  renderMyBond();
+}
+async function openSection(id) {
+  const s = await (await fetch('/api/sections/' + id)).json();
+  const list = document.getElementById('sectionList');
+  const box = el('div', undefined, 'card');
+  box.appendChild(el('h3', 'Points on: ' + s.title));
+  const sum = await (await fetch(`/api/sections/${id}/summary`)).json();
+  box.appendChild(el('p', sum.points ? sum.points.join(' ') : ''));
+  box.appendChild(el('p', 'Agreement: ' + (sum.agreement || '')));
+  box.appendChild(el('p', 'Different views: ' + (sum.disagreement || '')));
+  (s.comments || []).forEach(c => {
+    const d = el('div', undefined, 'comment');
+    d.appendChild(el('p', `[${c.kind}] ${c.body}`));
+    d.appendChild(el('p', `${c.display_name} | ${c.upvotes} votes`, 'meta'));
+    const u = el('button', 'Upvote');
+    u.addEventListener('click', async () => { await fetch(`/api/section-comments/${c.id}/upvote`, { method: 'POST' }); openSection(id); });
+    d.appendChild(u);
+    box.appendChild(d);
+  });
+  const form = document.createElement('form');
+  const kind = document.createElement('select');
+  ['idea', 'pro', 'con', 'question'].forEach(k => kind.appendChild(el('option', k)));
+  const body = document.createElement('textarea');
+  body.required = true; body.rows = 3; body.placeholder = 'Add a point, a pro, a con, or a question about this section';
+  const name = document.createElement('input');
+  name.placeholder = 'Display name (optional)';
+  const btn = el('button', 'Add point');
+  btn.type = 'submit';
+  form.append(kind, body, name, btn);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await fetch(`/api/sections/${id}/comments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: body.value, kind: kind.value, displayName: name.value }) });
+    openSection(id); loadSections();
+  });
+  box.appendChild(form);
+  list.prepend(box);
+  box.scrollIntoView();
+}
+function renderMyBond() {
+  const box = document.getElementById('myBond');
+  if (!box) return;
+  const ids = myBondIds();
+  const picked = sectionsCache.filter(s => ids.includes(s.id));
+  box.innerHTML = '';
+  if (!picked.length) { box.appendChild(el('p', 'No sections picked yet. Use Add to my bond on a section below.')); return; }
+  let total = 0; let unknown = 0;
+  picked.forEach(s => {
+    box.appendChild(el('p', `${s.title} (${s.building}): ${s.cost_label}`));
+    if (typeof s.cost === 'number') total += s.cost; else unknown += 1;
+  });
+  const first = total / 41000000 * 3.95;
+  const avg = total / 41000000 * 5.51;
+  box.appendChild(el('p', `Priced total: ${money(total)}${unknown ? `, plus ${unknown} section${unknown === 1 ? '' : 's'} with no cost estimate` : ''}.`));
+  box.appendChild(el('p', `Rough tax estimate, scaled from the 2026 $41 million ballot figures: about ${first.toFixed(2)} mills in the first year ($${Math.round(first * 100)} per year on $100,000 of taxable value), ${avg.toFixed(2)}-mill simple average. Rough estimate only, not a tax quote.`, 'small'));
+  const clear = el('button', 'Clear my draft');
+  clear.addEventListener('click', () => { saveBondIds([]); renderMyBond(); loadSections(); });
+  box.appendChild(clear);
+}
+document.getElementById('newSectionForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const msg = document.getElementById('sectionMsg');
+  const costVal = document.getElementById('sectionCost').value;
+  const res = await fetch('/api/sections', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: document.getElementById('sectionTitle').value, building: document.getElementById('sectionBuilding').value, detail: document.getElementById('sectionDetail').value, openQuestion: document.getElementById('sectionQuestion').value, cost: costVal === '' ? null : Number(costVal), displayName: document.getElementById('sectionName').value }),
+  });
+  if (!res.ok) { msg.textContent = (await res.json()).error || 'Could not save the section.'; return; }
+  msg.textContent = 'Section added. Vote for it, and add it to your draft.';
+  e.target.reset();
+  loadSections();
+});
+document.getElementById('draftForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const msg = document.getElementById('draftMsg');
+  const res = await fetch('/api/drafts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sectionIds: myBondIds(), title: document.getElementById('draftTitle').value, note: document.getElementById('draftNote').value, displayName: document.getElementById('draftName').value }),
+  });
+  if (!res.ok) { msg.textContent = (await res.json()).error || 'Could not submit the draft.'; return; }
+  const data = await res.json();
+  msg.textContent = `Draft submitted as a proposal thread. Priced total ${money(data.total)}.`;
+  saveBondIds([]);
+  renderMyBond();
+  loadThreads();
+  openThread(data.thread.id);
+});
 loadCategories().then(loadThreads);
+loadPastBonds();
+loadSections();
+

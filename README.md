@@ -14,6 +14,12 @@ information is published on the site.
 - Search, comments, and upvotes, with posts saved in Postgres on Render
 - A neutral summary on each thread: main points, agreement, different views,
   and open questions. It never takes a side.
+- Build a Bond Workshop: past-bond history (May 2025 $36.4M, Nov 2025 $32.35M,
+  Nov 2026 $41M, all failed), seed sections built from the verified 2026
+  project costs and the state facilities study, custom section builder,
+  voting on sections, and a draft builder that totals priced sections and
+  gives a rough tax estimate scaled from the 2026 ballot figures. A submitted
+  draft becomes a proposal thread in the forum.
 - Community guidelines on the site: focus on ideas, not people; no personal
   attacks; no personal information. Posts can be reported.
 
