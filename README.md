@@ -20,6 +20,18 @@ information is published on the site.
   voting on sections, and a draft builder that totals priced sections and
   gives a rough tax estimate scaled from the 2026 ballot figures. A submitted
   draft becomes a proposal thread in the forum.
+- The draft is an editable table (section, building, cost, votes) with a
+  live total and tax estimate. Edits change only that resident's draft, never
+  the shared sections.
+- Draft advisor, opt-in only: a "Get advice on this draft" button checks the
+  draft against the workshop's own records (past bonds, seeded costs, the
+  state study figure) and flags gaps such as unpriced sections or a missing
+  topic. With `GROQ_API_KEY` set in the Render dashboard, the same check
+  also gets a short neutral AI review and rough estimate ranges for unpriced
+  sections, which the resident can apply to the draft table with one tap.
+  Without the key, the automatic check still runs. Estimates are always
+  labeled rough and are never district figures; the advisor never takes a
+  side on any bond.
 - Community guidelines on the site: focus on ideas, not people; no personal
   attacks; no personal information. Posts can be reported.
 
@@ -29,7 +41,7 @@ Use the Render dashboard, New, Blueprint, and point it at this repo.
 `render.yaml` creates the web service and a free Postgres database and
 wires `DATABASE_URL` to the app.
 
-Optional: in the Render dashboard, set `OPENAI_API_KEY` to use an AI
+Optional: in the Render dashboard, set `GROQ_API_KEY` (free tier, no card, from console.groq.com) to use an AI
 summary. Without it, the site falls back to an automatic summary built
 only from that thread's own comments.
 

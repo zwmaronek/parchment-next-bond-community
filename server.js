@@ -6,6 +6,19 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '100kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Share-card image: embedded as base64 text in og-image-data.js because the
+// PNG itself cannot travel through the text-only deploy path. Served at the
+// same /og-image.png URL the meta tags point at; the static file wins
+// locally when it exists, this route covers the deployed site.
+let ogImageBuf = null;
+try { ogImageBuf = Buffer.from(require('./og-image-data.js'), 'base64'); } catch (e) { ogImageBuf = null; }
+app.get('/og-image.png', (req, res) => {
+  if (!ogImageBuf) return res.status(404).send('Not found.');
+  res.set('Content-Type', 'image/png');
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.send(ogImageBuf);
+});
+
 const CATEGORIES = [
   'Buildings and repairs',
   'Classrooms and learning',
@@ -221,7 +234,7 @@ async function report(table, id) {
 }
 
 // ---------- Neutral summary ----------
-// If OPENAI_API_KEY is set, use it with a strictly neutral prompt. Otherwise
+// If GROQ_API_KEY is set, use it with a strictly neutral prompt. Otherwise
 // fall back to an extractive summary built only from the thread itself.
 // Either way the summary never takes a side and never adds outside facts.
 function extractiveSummary(thread) {
@@ -249,13 +262,13 @@ function extractiveSummary(thread) {
   };
 }
 async function buildSummary(thread) {
-  if (!process.env.OPENAI_API_KEY) return extractiveSummary(thread);
+  if (!process.env.GROQ_API_KEY) return extractiveSummary(thread);
   try {
     const prompt = `Summarize this community discussion neutrally. Do not take a side for or against any bond idea, do not add facts not in the discussion, and do not name any private person. Return JSON only with keys: points (array of strings), agreement (string), disagreement (string), openQuestions (array of strings).\n\nThread: ${thread.title}\n${thread.body}\n\nComments:\n${(thread.comments || []).map(c => '- ' + c.body).join('\n').slice(0, 8000)}`;
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-      body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.2 }),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+      body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'user', content: prompt }], temperature: 0.2, response_format: { type: 'json_object' } }),
     });
     const data = await res.json();
     const parsed = JSON.parse(data.choices[0].message.content);
@@ -382,12 +395,36 @@ app.post('/api/section-comments/:id/upvote', async (req, res) => {
   if (!item) return res.status(404).json({ error: 'Not found.' });
   res.json(item);
 });
-app.post('/api/drafts', rateLimit, async (req, res) => {
+// Draft-only edits from the workshop table: a resident can rename a
+// section, move it to another building, or change its cost in their own
+// draft. Overrides apply to the draft copy only; the shared section in
+// the database is never changed.
+function withDraftOverrides(s, overrides) {
+  const ov = overrides[String(s.id)] || overrides[s.id] || {};
+  const copy = { ...s };
+  if (typeof ov.title === 'string' && ov.title.trim()) copy.title = clean(ov.title, 200);
+  if (typeof ov.building === 'string') copy.building = clean(ov.building, 120);
+  if ('cost' in ov) {
+    if (ov.cost === null) copy.cost = null;
+    else if (typeof ov.cost === 'number' && Number.isFinite(ov.cost) && ov.cost >= 0 && ov.cost <= 200000000) copy.cost = Math.round(ov.cost);
+  }
+  copy.cost_label = typeof copy.cost === 'number' ? '$' + copy.cost.toLocaleString('en-US') : 'No cost estimate yet';
+  return copy;
+}
+async function draftSections(req) {
   const ids = Array.isArray(req.body.sectionIds) ? req.body.sectionIds.map(Number).filter(n => Number.isFinite(n)).slice(0, 20) : [];
-  if (!ids.length) return res.status(400).json({ error: 'Add at least one section to your draft first.' });
+  if (!ids.length) return null;
+  const overrides = req.body.overrides && typeof req.body.overrides === 'object' ? req.body.overrides : {};
   const sections = [];
-  for (const id of ids) { const s = await getSection(id); if (s) sections.push(s); }
-  if (!sections.length) return res.status(400).json({ error: 'Those sections could not be found.' });
+  for (const id of ids) {
+    const s = await getSection(id);
+    if (s) sections.push(withDraftOverrides(s, overrides));
+  }
+  return sections.length ? sections : null;
+}
+app.post('/api/drafts', rateLimit, async (req, res) => {
+  const sections = await draftSections(req);
+  if (!sections) return res.status(400).json({ error: 'Add at least one section to your draft first.' });
   const known = sections.filter(s => typeof s.cost === 'number');
   const total = known.reduce((a, s) => a + s.cost, 0);
   const unknown = sections.length - known.length;
@@ -399,6 +436,81 @@ app.post('/api/drafts', rateLimit, async (req, res) => {
     const thread = await createThread({ title, body, category: 'Other ideas', display_name: displayName(req.body.displayName) });
     res.status(201).json({ thread, total, unknown, estimate: est });
   } catch (e) { res.status(500).json({ error: 'Could not save the draft.' }); }
+});
+// ---------- Draft advisor ----------
+// Subtle, opt-in help for the workshop draft table. It runs only when a
+// resident asks for it, and it never takes a side on any bond.
+// Always available: a rules-based check against the app's own records
+// (past bonds, seeded costs, the state study figure). When GROQ_API_KEY
+// is set, the same draft also gets a short neutral AI review, and unpriced
+// sections get rough AI estimate ranges. Estimates are always labeled
+// rough, are never district figures, and never invent a cost where no
+// comparable exists.
+function automaticAdvice(sections) {
+  const known = sections.filter(s => typeof s.cost === 'number');
+  const total = known.reduce((a, s) => a + s.cost, 0);
+  const unknown = sections.length - known.length;
+  const advice = [];
+  const past = PAST_BONDS.map(b => `${b.amount} (${b.date})`).join(', ');
+  advice.push(`Your draft totals $${total.toLocaleString('en-US')} across ${sections.length} section${sections.length === 1 ? '' : 's'}. The last three asks were ${past}, and all three failed.`);
+  if (total >= 32000000) advice.push('That total sits in the same range as the three failed asks, which were $32 million to $41 million.');
+  else if (total > 0) advice.push('That total sits well under the last three asks, which were $32 million to $41 million.');
+  if (known.length) {
+    const biggest = known.reduce((a, s) => (s.cost > a.cost ? s : a), known[0]);
+    if (total > 0 && biggest.cost / total > 0.6) advice.push(`One section, "${biggest.title}", is more than half of your draft. A phased plan sometimes splits a large piece across two votes.`);
+  }
+  const hay = sections.map(s => (s.title + ' ' + s.detail + ' ' + s.building).toLowerCase()).join(' ');
+  const coverage = [
+    [/middle school/, 'the middle school'],
+    [/safety|secure/, 'safety work'],
+    [/high school|wing/, 'the high school'],
+    [/elementary/, 'an elementary school'],
+  ];
+  coverage.forEach(([re, label]) => {
+    if (!re.test(hay)) advice.push(`Nothing in the draft covers ${label} yet. Add a section from the list or build your own if it belongs.`);
+  });
+  if (unknown) advice.push(unknown === 1 ? '1 section has no cost estimate, so the total above is a floor, not the full price.' : `${unknown} sections have no cost estimate, so the total above is a floor, not the full price.`);
+  const estimates = [];
+  sections.filter(s => typeof s.cost !== 'number').forEach(s => {
+    const text = (s.title + ' ' + s.detail).toLowerCase();
+    if (/middle school.*repair|repair.*middle school/.test(text)) {
+      estimates.push({ sectionId: s.id, low: 12788595, high: 12788595, basis: 'State facilities study total repair figure for the middle school, $12,788,595.' });
+    } else if (/wing|grades 7-8/.test(text)) {
+      estimates.push({ sectionId: s.id, low: 14615611, high: 14615611, basis: '2026 plan figure for the grades 7-8 wing, $14,615,611 across all series.' });
+    }
+    // Any other unpriced section gets no invented number: the resident is
+    // told to add their own estimate or ask the district for a figure.
+  });
+  return { mode: 'automatic', advice, estimates, total, unknown, estimate: taxEstimate(total), note: 'Automatic check against the workshop records. It is not a district statement, and any estimate is rough, not a quote.' };
+}
+async function aiAdvice(sections) {
+  const base = automaticAdvice(sections);
+  if (!process.env.GROQ_API_KEY) return base;
+  try {
+    const unpriced = sections.filter(s => typeof s.cost !== 'number');
+    const prompt = `You are a neutral advisor for residents drafting a school bond proposal. Do not take a side for or against any bond, do not recommend voting either way, and do not invent district facts or prices. Use only the figures given below. Return JSON only with keys: advice (array of up to 5 short strings) and estimates (array of {sectionId, low, high, basis} for the unpriced sections only, low and high in dollars, basis naming which given figure it is based on; omit a section if no given figure is a fair comparable).\n\nKnown figures: middle school total repair $12,788,595 (state facilities study, certified July 29, 2024); grades 7-8 wing $14,615,611 (2026 plan, all series); North Elementary $17,447,000; Northwood Elementary $8,059,000; Central early learning center $306,801; middle school demolition $420,949; phased critical repairs $3,332,951. Past bonds: $36.4M May 2025 failed, $32.35M Nov 2025 failed, $41M Nov 2026 failed. Tax scaling: 3.95 mills in year one and 5.51-mill average per $41 million.\n\nDraft sections:\n${sections.map(s => `- id ${s.id}: ${s.title} (${s.building}): ${typeof s.cost === 'number' ? '$' + s.cost.toLocaleString('en-US') : 'no cost estimate yet'}`).join('\n')}\nDraft total: $${base.total.toLocaleString('en-US')}, plus ${base.unknown} unpriced section(s).`;
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+      body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'user', content: prompt }], temperature: 0.2, response_format: { type: 'json_object' } }),
+    });
+    const data = await res.json();
+    const parsed = JSON.parse(data.choices[0].message.content);
+    const validIds = new Set(unpriced.map(s => s.id));
+    const estimates = (Array.isArray(parsed.estimates) ? parsed.estimates : []).filter(e =>
+      validIds.has(e.sectionId) && Number.isFinite(e.low) && Number.isFinite(e.high) && e.low >= 0 && e.high >= e.low && e.high <= 200000000
+    ).map(e => ({ sectionId: e.sectionId, low: Math.round(e.low), high: Math.round(e.high), basis: clean(e.basis || '', 200) || 'AI estimate based on the given figures.' }));
+    const advice = (Array.isArray(parsed.advice) ? parsed.advice : []).filter(a => typeof a === 'string' && a.trim()).slice(0, 5).map(a => a.trim());
+    return { mode: 'ai', advice: advice.length ? advice : base.advice, estimates: estimates.length ? estimates : base.estimates, total: base.total, unknown: base.unknown, estimate: base.estimate, note: 'AI review. It is not a district statement, and any estimate is rough, not a quote.' };
+  } catch (e) {
+    return base;
+  }
+}
+app.post('/api/drafts/advise', rateLimit, async (req, res) => {
+  const sections = await draftSections(req);
+  if (!sections) return res.status(400).json({ error: 'Add at least one section to your draft first.' });
+  try { res.json(await aiAdvice(sections)); }
+  catch (e) { res.status(500).json({ error: 'Advice is not available right now.' }); }
 });
 app.get('/health', (req, res) => res.json({ ok: true }));
 

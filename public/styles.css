@@ -25,4 +25,20 @@ button:hover,button:focus{background:var(--accent)}
 .comment{border-top:1px solid var(--border);padding:10px 0}
 .site-footer{background:#000000;color:#ffffff;border-top:5px solid var(--accent);padding:16px;border-radius:8px}
 .site-footer p{margin:4px 0}
+.table-scroll{overflow-x:auto;margin:12px 0}
+.bond-table{width:100%;border-collapse:collapse;font-size:.95rem}
+.bond-table th,.bond-table td{border:1px solid var(--border);padding:8px;text-align:left;vertical-align:top}
+.bond-table thead th{background:var(--nav-bg);color:#ffffff}
+.bond-table tfoot td{font-weight:700}
+.bond-table input{width:100%;margin:0;padding:6px;font-size:.95rem}
+.bond-table input[type=number]{text-align:right}
+.bond-table .cost-cell{min-width:140px}
+.bond-table td button{margin:0;padding:6px 10px}
+.advice-box{background:var(--card);border:1px solid var(--border);border-left:4px solid var(--accent);padding:14px;margin:14px 0;border-radius:8px}
+.advice-box h4{margin:0 0 8px}
+.advice-box ul{margin:8px 0;padding-left:20px}
+.advice-box p{margin:8px 0}
+.section-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 20px}
+.section-grid .thread{cursor:default}
+@media (max-width:700px){.section-grid{grid-template-columns:1fr}}
 @media (max-width:600px){body{padding:10px}.header-inner{flex-direction:column;align-items:flex-start}.logo{height:72px}.site-header h1{font-size:1.4rem}}

@@ -10,9 +10,10 @@ services:
         fromDatabase:
           name: parchment-next-bond-db
           property: connectionString
-      # Optional: set OPENAI_API_KEY in the Render dashboard to use an AI
-      # summary. Without it, the site uses an automatic summary built
-      # only from the thread itself. Never commit a key to this repo.
+      # Optional: set GROQ_API_KEY in the Render dashboard (free tier, no
+      # card, from console.groq.com) to use an AI summary and AI draft
+      # advice. Without it, the site uses automatic checks built only
+      # from the workshop records. Never commit a key to this repo.
 databases:
   - name: parchment-next-bond-db
     plan: free

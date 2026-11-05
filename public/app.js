@@ -116,10 +116,27 @@ document.getElementById('newCommentForm').addEventListener('submit', async (e) =
   openThread(currentThread.id);
 });
 let sectionsCache = [];
+let lastAdvice = null;
 function myBondIds() {
   try { return JSON.parse(localStorage.getItem('myBondIds') || '[]'); } catch (e) { return []; }
 }
 function saveBondIds(ids) { localStorage.setItem('myBondIds', JSON.stringify(ids)); }
+// Draft-only edits to a section: title, building, and cost as shown in the
+// draft table. These live in the browser only and never rewrite the shared
+// section, so the seeded 2026 costs stay as published for everyone else.
+function myBondOverrides() {
+  try { return JSON.parse(localStorage.getItem('myBondOverrides') || '{}'); } catch (e) { return {}; }
+}
+function saveBondOverrides(o) { localStorage.setItem('myBondOverrides', JSON.stringify(o)); }
+function draftSection(s) {
+  const ov = myBondOverrides()[s.id] || {};
+  return {
+    ...s,
+    title: ov.title !== undefined ? ov.title : s.title,
+    building: ov.building !== undefined ? ov.building : s.building,
+    cost: ov.cost !== undefined ? ov.cost : s.cost,
+  };
+}
 function money(n) { return '$' + Number(n).toLocaleString('en-US'); }
 async function loadPastBonds() {
   const box = document.getElementById('pastBonds');
@@ -137,6 +154,7 @@ async function loadSections() {
   const list = document.getElementById('sectionList');
   if (!list) return;
   sectionsCache = await (await fetch('/api/sections')).json();
+  list.classList.add('section-grid');
   list.innerHTML = '';
   sectionsCache.forEach(s => {
     const d = el('div', undefined, 'thread');
@@ -198,25 +216,143 @@ async function openSection(id) {
   list.prepend(box);
   box.scrollIntoView();
 }
+function updateBondTotals() {
+  const box = document.getElementById('myBond');
+  if (!box) return;
+  const rows = box.querySelectorAll('tbody tr');
+  let total = 0; let unknown = 0;
+  rows.forEach(r => {
+    const v = r.querySelector('.bond-cost').value;
+    if (v === '') unknown += 1;
+    else total += Number(v) || 0;
+  });
+  const totalCell = document.getElementById('bondTotalCell');
+  const unknownCell = document.getElementById('bondUnknownCell');
+  const taxCell = document.getElementById('bondTaxCell');
+  if (!totalCell) return;
+  totalCell.textContent = money(total);
+  unknownCell.textContent = unknown ? `${unknown} section${unknown === 1 ? '' : 's'} with no cost estimate` : '';
+  const first = total / 41000000 * 3.95;
+  const avg = total / 41000000 * 5.51;
+  taxCell.textContent = `Rough tax estimate, scaled from the 2026 $41 million ballot figures: about ${first.toFixed(2)} mills in the first year ($${Math.round(first * 100)} per year on $100,000 of taxable value), ${avg.toFixed(2)}-mill simple average. Rough estimate only, not a tax quote.`;
+}
 function renderMyBond() {
   const box = document.getElementById('myBond');
   if (!box) return;
   const ids = myBondIds();
-  const picked = sectionsCache.filter(s => ids.includes(s.id));
+  const picked = sectionsCache.filter(s => ids.includes(s.id)).map(draftSection);
   box.innerHTML = '';
   if (!picked.length) { box.appendChild(el('p', 'No sections picked yet. Use Add to my bond on a section below.')); return; }
-  let total = 0; let unknown = 0;
+  const wrap = el('div', undefined, 'table-scroll');
+  const table = document.createElement('table');
+  table.className = 'bond-table';
+  table.innerHTML = '<thead><tr><th>Section</th><th>Building</th><th>Cost</th><th>Votes</th><th></th></tr></thead>';
+  const tbody = document.createElement('tbody');
   picked.forEach(s => {
-    box.appendChild(el('p', `${s.title} (${s.building}): ${s.cost_label}`));
-    if (typeof s.cost === 'number') total += s.cost; else unknown += 1;
+    const tr = document.createElement('tr');
+    const titleTd = document.createElement('td');
+    const title = document.createElement('input');
+    title.type = 'text'; title.className = 'bond-title'; title.value = s.title; title.maxLength = 200;
+    title.setAttribute('aria-label', 'Section title');
+    titleTd.appendChild(title);
+    const bldTd = document.createElement('td');
+    const bld = document.createElement('input');
+    bld.type = 'text'; bld.className = 'bond-building'; bld.value = s.building || ''; bld.maxLength = 120;
+    bld.setAttribute('aria-label', 'Building');
+    bldTd.appendChild(bld);
+    const costTd = document.createElement('td');
+    costTd.className = 'cost-cell';
+    const cost = document.createElement('input');
+    cost.type = 'number'; cost.className = 'bond-cost'; cost.min = '0'; cost.max = '200000000'; cost.step = '1';
+    cost.value = typeof s.cost === 'number' ? s.cost : '';
+    cost.placeholder = 'No estimate';
+    cost.setAttribute('aria-label', 'Cost in dollars');
+    costTd.appendChild(cost);
+    const votesTd = el('td', String(s.upvotes || 0));
+    const rmTd = document.createElement('td');
+    const rm = el('button', 'Remove');
+    rm.type = 'button';
+    rm.addEventListener('click', () => {
+      const o = myBondOverrides(); delete o[s.id]; saveBondOverrides(o);
+      saveBondIds(myBondIds().filter(x => x !== s.id));
+      renderMyBond(); loadSections();
+    });
+    rmTd.appendChild(rm);
+    tr.append(titleTd, bldTd, costTd, votesTd, rmTd);
+    const onEdit = () => {
+      const o = myBondOverrides();
+      const costVal = cost.value === '' ? null : Number(cost.value);
+      o[s.id] = { title: title.value, building: bld.value, cost: costVal };
+      saveBondOverrides(o);
+      updateBondTotals();
+    };
+    [title, bld, cost].forEach(inp => inp.addEventListener('input', onEdit));
+    tbody.appendChild(tr);
   });
-  const first = total / 41000000 * 3.95;
-  const avg = total / 41000000 * 5.51;
-  box.appendChild(el('p', `Priced total: ${money(total)}${unknown ? `, plus ${unknown} section${unknown === 1 ? '' : 's'} with no cost estimate` : ''}.`));
-  box.appendChild(el('p', `Rough tax estimate, scaled from the 2026 $41 million ballot figures: about ${first.toFixed(2)} mills in the first year ($${Math.round(first * 100)} per year on $100,000 of taxable value), ${avg.toFixed(2)}-mill simple average. Rough estimate only, not a tax quote.`, 'small'));
+  const tfoot = document.createElement('tfoot');
+  tfoot.innerHTML = '<tr><td colspan="2">Priced total</td><td id="bondTotalCell"></td><td id="bondUnknownCell" colspan="2"></td></tr>' +
+    '<tr><td colspan="5" id="bondTaxCell" class="small"></td></tr>';
+  table.append(tbody, tfoot);
+  wrap.appendChild(table);
+  box.appendChild(wrap);
+  box.appendChild(el('p', 'Edit any cell in the table. Edits change only your draft, not the shared sections, and the total and tax estimate update as you type.', 'small'));
   const clear = el('button', 'Clear my draft');
-  clear.addEventListener('click', () => { saveBondIds([]); renderMyBond(); loadSections(); });
+  clear.addEventListener('click', () => { saveBondIds([]); saveBondOverrides({}); lastAdvice = null; renderMyBond(); loadSections(); });
+  const advise = el('button', 'Get advice on this draft');
+  advise.addEventListener('click', async () => {
+    advise.disabled = true; advise.textContent = 'Checking your draft...';
+    try {
+      const res = await fetch('/api/drafts/advise', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sectionIds: myBondIds(), overrides: myBondOverrides() }),
+      });
+      if (!res.ok) throw new Error('advice failed');
+      lastAdvice = await res.json();
+    } catch (e) {
+      lastAdvice = { mode: 'automatic', advice: ['Advice is not available right now. Your draft and its totals are still above, unchanged.'], estimates: [], note: '' };
+    }
+    renderMyBond();
+  });
   box.appendChild(clear);
+  box.appendChild(advise);
+  updateBondTotals();
+  renderAdvice();
+}
+function renderAdvice() {
+  const box = document.getElementById('myBond');
+  if (!box || !lastAdvice) return;
+  const wrap = el('div', undefined, 'advice-box');
+  wrap.appendChild(el('h4', lastAdvice.mode === 'ai' ? 'AI suggestions on this draft' : 'A check on this draft'));
+  const ul = document.createElement('ul');
+  lastAdvice.advice.forEach(a => ul.appendChild(el('li', a)));
+  wrap.appendChild(ul);
+  (lastAdvice.estimates || []).forEach(est => {
+    const s = sectionsCache.find(x => x.id === est.sectionId);
+    if (!s) return;
+    const current = draftSection(s);
+    const row = el('p', `${s.title}: roughly ${money(est.low)} to ${money(est.high)}. ${est.basis} `);
+    if (typeof current.cost === 'number') {
+      row.appendChild(el('span', 'Applied.', 'small'));
+    } else {
+      const mid = Math.round((est.low + est.high) / 2);
+      const use = el('button', `Use ${money(mid)}`);
+      use.type = 'button';
+      use.addEventListener('click', () => {
+        const o = myBondOverrides();
+        o[s.id] = { ...(o[s.id] || {}), title: current.title, building: current.building, cost: mid };
+        saveBondOverrides(o);
+        renderMyBond();
+      });
+      row.appendChild(use);
+    }
+    wrap.appendChild(row);
+  });
+  if (lastAdvice.note) wrap.appendChild(el('p', lastAdvice.note, 'small'));
+  const dismiss = el('button', 'Hide advice');
+  dismiss.type = 'button';
+  dismiss.addEventListener('click', () => { lastAdvice = null; renderMyBond(); });
+  wrap.appendChild(dismiss);
+  box.appendChild(wrap);
 }
 document.getElementById('newSectionForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -236,12 +372,13 @@ document.getElementById('draftForm').addEventListener('submit', async (e) => {
   const msg = document.getElementById('draftMsg');
   const res = await fetch('/api/drafts', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sectionIds: myBondIds(), title: document.getElementById('draftTitle').value, note: document.getElementById('draftNote').value, displayName: document.getElementById('draftName').value }),
+    body: JSON.stringify({ sectionIds: myBondIds(), overrides: myBondOverrides(), title: document.getElementById('draftTitle').value, note: document.getElementById('draftNote').value, displayName: document.getElementById('draftName').value }),
   });
   if (!res.ok) { msg.textContent = (await res.json()).error || 'Could not submit the draft.'; return; }
   const data = await res.json();
   msg.textContent = `Draft submitted as a proposal thread. Priced total ${money(data.total)}.`;
   saveBondIds([]);
+  saveBondOverrides({});
   renderMyBond();
   loadThreads();
   openThread(data.thread.id);
